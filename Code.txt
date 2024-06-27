@@ -1,0 +1,111 @@
+# Import necessary libraries
+import cv2
+import numpy as np
+import pyttsx3
+from ultralytics import YOLO
+
+# Initialize the YOLO model
+model = YOLO('yolov8n.pt')
+
+# Get class names from the model
+names = model.names
+
+# Initialize the text-to-speech engine
+engine = pyttsx3.init()
+
+# Define the virtual bounding box using two points
+virtual_box_point1 = (200, 0)  # Example: top-left corner coordinates
+virtual_box_point2 = (600, 800) # Example: bottom-right corner coordinates
+virtual_box_area = float((virtual_box_point2[0] - virtual_box_point1[0]) * (virtual_box_point2[1] - virtual_box_point1[1]))
+
+# Initialize webcam
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    raise IOError("Cannot open webcam")
+
+# Set video capture properties
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 800)
+cap.set(cv2.CAP_PROP_FPS, 10)
+
+try:
+    ret , frame = cap.read()
+    frame = model.predict(source=frame, show=False, save=False, show_conf=False, show_labels=False)
+    for box in frame[0].boxes:
+            box_vec_old = box.xyxy.cpu().detach().numpy().copy()
+            box_vec_old = np.squeeze(box_vec)
+            box_vec_old = (np.rint(box_vec)).astype(int)
+            cls_lbl_old = int(box.cls.cpu().detach().numpy().copy())
+            point1_old = (box_vec_old[0], box_vec_old[1])
+            point2_old = (box_vec_old[2], box_vec_old[3])
+
+    
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+
+        # Perform object detection
+        frame = model.predict(source=frame, show=False, save=False, show_conf=False, show_labels=False)
+
+        # Copy the original image
+        img = frame[0].orig_img.copy()
+
+        # Iterate over the detected boxes
+        for box in frame[0].boxes:
+            box_vec = box.xyxy.cpu().detach().numpy().copy()
+            box_vec = np.squeeze(box_vec)
+            box_vec = (np.rint(box_vec)).astype(int)
+            cls_lbl = int(box.cls.cpu().detach().numpy().copy())
+
+            # Calculate the center point and area of the bounding box
+            center_x = (box_vec[0] + box_vec[2]) // 2
+            center_y = (box_vec[1] + box_vec[3]) // 2
+            object_box_area = float((box_vec[2] - box_vec[0]) * (box_vec[3] - box_vec[1]))
+
+            point1 = (box_vec[0], box_vec[1])
+            point2 = (box_vec[2], box_vec[3])
+
+            # Draw the bounding box on the image
+            img = cv2.rectangle(img, virtual_box_point1, virtual_box_point2, (0, 255, 0), 2)
+            img = cv2.rectangle(img, point1, point2, (0, 255, 0), 2)
+            img = cv2.putText(img, names[cls_lbl], (box_vec[0] + 15, box_vec[1] - 15), cv2.FONT_HERSHEY_SIMPLEX,
+                              1, (0, 0, 255), 2, cv2.LINE_AA)
+
+            # Check if the object's bounding box is inside the virtual bounding box
+            if virtual_box_point1[0] < box_vec[0] < virtual_box_point2[0] and \
+               virtual_box_point1[0] < box_vec[2] < virtual_box_point2[0] and \
+               object_box_area / virtual_box_area > 0.2:
+                # Object is at a close distance
+                    engine.say(f"{names[cls_lbl]} is in a close distance")
+            #checkng if the object is on right 
+            elif virtual_box_point1[0] < box_vec[0] < virtual_box_point2[0] and \
+                 box_vec[2] > virtual_box_point2[0] and \
+                 (box_vec_old[0] - box_vec[0]) > 10:
+                    #saying the object is on right
+                    engine.say(f"{names[cls_lbl]} move from right")
+
+            #checkng if the object is on right 
+            elif virtual_box_point1[0] < box_vec[2] < virtual_box_point2[0] and \
+                 box_vec[0] < virtual_box_point1[0] and \
+                 (box_vec[0] - box_vec_old[0]) > 10:
+                    #saying the object is on right
+                    engine.say(f"{names[cls_lbl]} move from left")
+                    
+            engine.runAndWait()
+                    
+
+        # Display the resulting frame
+        cv2.imshow('Input', img)
+        box_vec_old[0]=box_vec[0]
+        box_vec_old[1]=box_vec[1]
+        box_vec_old[2]=box_vec[2]
+        box_vec_old[3]=box_vec[3]
+
+        # Check for 'q' key to exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+finally:
+    # When everything is done, release the capture and destroy all windows
+    cap.release()
+    cv2.destroyAllWindows()
